@@ -15,7 +15,7 @@ namespace ErrorProne.NET.ExceptionsAnalyzers
         public const string DiagnosticId = DiagnosticIds.IncorrectExceptionPropagation;
 
         internal const string Title = "Incorrect exception propagation";
-        public const string MessageFormat = "Incorrect exception propagation. Use throw; instead.";
+        public const string MessageFormat = "Incorrect exception propagation. Use 'throw;' instead.";
         internal const string Category = "CodeSmell";
 
         internal static readonly DiagnosticDescriptor Rule = new DiagnosticDescriptor(
@@ -25,6 +25,9 @@ namespace ErrorProne.NET.ExceptionsAnalyzers
 
         public override void Initialize(AnalysisContext context)
         {
+            context.EnableConcurrentExecution();
+            context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.Analyze | GeneratedCodeAnalysisFlags.ReportDiagnostics);
+
             context.RegisterSyntaxNodeAction(AnalyzeCatchClause, SyntaxKind.CatchClause);
         }
 
@@ -49,12 +52,16 @@ namespace ErrorProne.NET.ExceptionsAnalyzers
             foreach (var throwStatement in catchClause.DescendantNodes().OfType<ThrowStatementSyntax>())
             {
                 if (!(throwStatement.Expression is IdentifierNameSyntax identifier))
+                {
                     continue;
+                }
 
                 {
                     var symbol = context.SemanticModel.GetSymbolInfo(identifier);
                     if (symbol.Symbol == null)
+                    {
                         continue;
+                    }
 
                     if (symbol.Symbol.ExceptionFromCatchBlock())
                     {

@@ -1,10 +1,8 @@
 ﻿using System;
 using System.Collections.Immutable;
+using System.Linq;
 using ErrorProne.NET.Core;
-using ErrorProne.NET.Utils;
 using Microsoft.CodeAnalysis;
-using Microsoft.CodeAnalysis.CSharp;
-using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Diagnostics;
 
 namespace ErrorProne.NET.StructAnalyzers
@@ -15,9 +13,9 @@ namespace ErrorProne.NET.StructAnalyzers
         /// <nodoc />
         public const string DiagnosticId = DiagnosticIds.UseInModifierForReadOnlyStructDiagnosticId;
 
-        private static readonly string Title = "Use in-modifier for a readonly struct";
-        private static readonly string MessageFormat = "Use in-modifier for passing readonly struct '{0}'";
-        private static readonly string Description = "Readonly structs have better performance when passed readonly reference";
+        private const string Title = "Use in-modifier for a readonly struct";
+        private const string MessageFormat = "Use in-modifier for passing a readonly struct '{0}' of estimated size '{1}'";
+        private const string Description = "Readonly structs have better performance when passed readonly reference";
         private const string Category = "Performance";
         // Using warning for visibility purposes
         private const DiagnosticSeverity Severity = DiagnosticSeverity.Warning;
@@ -33,26 +31,38 @@ namespace ErrorProne.NET.StructAnalyzers
         public override void Initialize(AnalysisContext context)
         {
             context.EnableConcurrentExecution();
+            context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.Analyze | GeneratedCodeAnalysisFlags.ReportDiagnostics);
 
-            context.RegisterSyntaxNodeAction(AnalyzeDelegateDeclaration, SyntaxKind.DelegateDeclaration);
+            context.RegisterSymbolAction(AnalyzeNamedType, SymbolKind.NamedType);
             context.RegisterSymbolAction(AnalyzeMethod, SymbolKind.Method);
         }
 
-        private void AnalyzeDelegateDeclaration(SyntaxNodeAnalysisContext context)
+        private void AnalyzeNamedType(SymbolAnalysisContext context)
         {
-            var delegateDeclaration = (DelegateDeclarationSyntax)context.Node;
-            var semanticModel = context.SemanticModel;
-            foreach (var p in delegateDeclaration.ParameterList.Parameters)
+            var symbol = (INamedTypeSymbol)context.Symbol;
+            if (symbol.TypeKind != TypeKind.Delegate)
             {
-                if (semanticModel.GetDeclaredSymbol(p) is IParameterSymbol parameterSymbol)
-                {
-                    WarnIfParameterIsReadOnly(context.Compilation, parameterSymbol, diagnostic => context.ReportDiagnostic(diagnostic));
-                }
+                // We're interested only in 'delegate void FooBar(MyStruct s);' cases.
+                return;
+            }
+
+            if (symbol.DelegateInvokeMethod is null || symbol.DelegateInvokeMethod.Parameters.IsEmpty)
+            {
+                // No need to do any work if there are no parameters
+                return;
+            }
+
+            var largeStructThreshold = Settings.GetLargeStructThresholdOrDefault(context.TryGetAnalyzerConfigOptions());
+            foreach (var parameterSymbol in symbol.DelegateInvokeMethod.Parameters)
+            {
+                WarnIfParameterIsReadOnly(context.Compilation, largeStructThreshold, parameterSymbol, diagnostic => context.ReportDiagnostic(diagnostic));
             }
         }
 
         private void AnalyzeMethod(SymbolAnalysisContext context)
         {
+            context.TryGetSemanticModel(out var semanticModel);
+
             var method = (IMethodSymbol) context.Symbol;
             if (IsOverridenMethod(method) || method.IsAsyncOrTaskBased(context.Compilation) || method.IsIteratorBlock())
             {
@@ -61,17 +71,37 @@ namespace ErrorProne.NET.StructAnalyzers
                 return;
             }
 
+            var largeStructThreshold = Settings.GetLargeStructThresholdOrDefault(context.TryGetAnalyzerConfigOptions());
+
             // Should analyze only subset of methods, not all of them.
-            // What about operators?
             if (method.MethodKind == MethodKind.Ordinary || method.MethodKind == MethodKind.AnonymousFunction ||
                 method.MethodKind == MethodKind.LambdaMethod || method.MethodKind == MethodKind.LocalFunction ||
-                method.MethodKind == MethodKind.PropertyGet)
+                method.MethodKind == MethodKind.PropertyGet || method.MethodKind == MethodKind.UserDefinedOperator)
             {
                 foreach (var p in method.Parameters)
                 {
-                    WarnIfParameterIsReadOnly(context.Compilation, p, diagnostic => context.ReportDiagnostic(diagnostic));
+                    if (!ParameterIsCapturedByAnonymousMethod(p, method, semanticModel))
+                    {
+                        WarnIfParameterIsReadOnly(context.Compilation, largeStructThreshold, p, diagnostic => context.ReportDiagnostic(diagnostic));
+                    }
                 }
             }
+        }
+
+        private static bool ParameterIsCapturedByAnonymousMethod(IParameterSymbol parameter, IMethodSymbol method, SemanticModel? semanticModel)
+        {
+            if (semanticModel == null)
+            {
+                return false;
+            }
+
+            var dataFlow = method.AnalyzeDataFlow(semanticModel);
+            if (dataFlow == null || !dataFlow.Succeeded)
+            {
+                return false;
+            }
+
+            return dataFlow.CapturedInside.FirstOrDefault(f => f.Equals(parameter, SymbolEqualityComparer.Default)) != null;
         }
 
         private static bool IsOverridenMethod(IMethodSymbol method)
@@ -80,12 +110,13 @@ namespace ErrorProne.NET.StructAnalyzers
                    method.IsInterfaceImplementation();   
         }
 
-        private static void WarnIfParameterIsReadOnly(Compilation compilation, IParameterSymbol p, Action<Diagnostic> diagnosticReporter)
+        private static void WarnIfParameterIsReadOnly(Compilation compilation, int largeStructThreshold, IParameterSymbol p, Action<Diagnostic> diagnosticReporter)
         {
-            if (p.RefKind == RefKind.None && p.Type.IsReadOnlyStruct() && p.Type.IsLargeStruct(compilation, Settings.LargeStructThreashold))
+            if (p.RefKind == RefKind.None && p.Type.IsReadOnlyStruct() && p.Type.IsLargeStruct(compilation, largeStructThreshold, out var estimatedSize))
             {
                 Location location = p.GetParameterLocation();
-                var diagnostic = Diagnostic.Create(Rule, location, p.Type.Name, p.Name);
+
+                var diagnostic = Diagnostic.Create(Rule, location, p.Type.ToDisplayString(), estimatedSize);
 
                 diagnosticReporter(diagnostic);
             }

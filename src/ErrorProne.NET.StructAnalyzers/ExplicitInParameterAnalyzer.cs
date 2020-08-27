@@ -12,11 +12,11 @@ namespace ErrorProne.NET.StructAnalyzers
     {
         public const string DiagnosticId = DiagnosticIds.ExplicitInParameterDiagnosticId;
 
-        private static readonly string Title = "Pass arguments for 'in' parameters explicitly";
-        private static readonly string MessageFormat = "Argument for parameter '{0}' should be passed explicitly";
-        private static readonly string Description = "Pass arguments for 'in' parameters explicitly";
+        private const string Title = "Pass an argument for an 'in' parameter explicitly";
+        private const string MessageFormat = "An argument for a parameter '{0}' may be passed explicitly";
+        private const string Description = "Pass an argument for an 'in' parameters explicitly";
         private const string Category = "Usage";
-        private const DiagnosticSeverity Severity = DiagnosticSeverity.Warning;
+        private const DiagnosticSeverity Severity = DiagnosticSeverity.Info;
 
         /// <nodoc />
         public static readonly DiagnosticDescriptor Rule =
@@ -48,8 +48,7 @@ namespace ErrorProne.NET.StructAnalyzers
                     continue;
                 }
 
-                var argumentSyntax = argument.Syntax as ArgumentSyntax;
-                if (argumentSyntax.RefKindKeyword.IsKind(SyntaxKind.InKeyword))
+                if (argument.Syntax is ArgumentSyntax argumentSyntax && argumentSyntax.RefKindKeyword.IsKind(SyntaxKind.InKeyword))
                 {
                     continue;
                 }
@@ -61,6 +60,12 @@ namespace ErrorProne.NET.StructAnalyzers
 
                 if (argument.Value is IObjectCreationOperation)
                 {
+                    continue;
+                }
+
+                if (argument.Value is IUnaryOperation)
+                {
+                    // Skipping cases like '-value'
                     continue;
                 }
 
@@ -90,6 +95,11 @@ namespace ErrorProne.NET.StructAnalyzers
                 }
 
                 if (argument.Value is IDefaultValueOperation)
+                {
+                    continue;
+                }
+
+                if (argument.Value is ITupleOperation)
                 {
                     continue;
                 }

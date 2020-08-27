@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics.ContractsLight;
 using System.Linq;
 using System.Reflection;
+using ErrorProne.NET.Core;
 using Microsoft.CodeAnalysis;
 
 namespace ErrorProne.NET.Extensions
@@ -34,19 +35,20 @@ namespace ErrorProne.NET.Extensions
 
         public static List<Tuple<IFieldSymbol, long>> GetSortedEnumFieldsAndValues(this INamedTypeSymbol enumType)
         {
-            Contract.Requires(enumType != null);
-
             var result = new List<Tuple<IFieldSymbol, long>>();
-            var underlyingSpecialType = enumType.EnumUnderlyingType.SpecialType;
-            foreach (var member in enumType.GetMembers())
+            var underlyingSpecialType = enumType.EnumUnderlyingType?.SpecialType;
+            if (underlyingSpecialType != null)
             {
-                if (member.Kind == SymbolKind.Field)
+                foreach (var member in enumType.GetMembers())
                 {
-                    var field = (IFieldSymbol)member;
-                    if (field.HasConstantValue)
+                    if (member.Kind == SymbolKind.Field)
                     {
-                        var value = (long)ConvertEnumUnderlyingTypeToUInt64(field.ConstantValue, underlyingSpecialType);
-                        result.Add(Tuple.Create(field, value));
+                        var field = (IFieldSymbol)member;
+                        if (field.HasConstantValue)
+                        {
+                            var value = (long)ConvertEnumUnderlyingTypeToUInt64(field.ConstantValue!, underlyingSpecialType.Value);
+                            result.Add(Tuple.Create(field, value));
+                        }
                     }
                 }
             }
@@ -61,34 +63,22 @@ namespace ErrorProne.NET.Extensions
 
             unchecked
             {
-                switch (specialType)
+                return specialType switch
                 {
-                    case SpecialType.System_SByte:
-                        return (ulong)(sbyte)value;
-                    case SpecialType.System_Int16:
-                        return (ulong)(short)value;
-                    case SpecialType.System_Int32:
-                        return (ulong)(int)value;
-                    case SpecialType.System_Int64:
-                        return (ulong)(long)value;
-                    case SpecialType.System_Byte:
-                        return (byte)value;
-                    case SpecialType.System_UInt16:
-                        return (ushort)value;
-                    case SpecialType.System_UInt32:
-                        return (uint)value;
-                    case SpecialType.System_UInt64:
-                        return (ulong)value;
-
-                    default:
-                        // not using ExceptionUtilities.UnexpectedValue() because this is used by the Services layer
-                        // which doesn't have those utilities.
-                        throw new InvalidOperationException($"{specialType} is not a valid underlying type for an enum");
-                }
+                    SpecialType.System_SByte => (ulong)(sbyte)value,
+                    SpecialType.System_Int16 => (ulong)(short)value,
+                    SpecialType.System_Int32 => (ulong)(int)value,
+                    SpecialType.System_Int64 => (ulong)(long)value,
+                    SpecialType.System_Byte => (byte)value,
+                    SpecialType.System_UInt16 => (ushort)value,
+                    SpecialType.System_UInt32 => (uint)value,
+                    SpecialType.System_UInt64 => (ulong)value,
+                    _ => throw new InvalidOperationException($"{specialType} is not a valid underlying type for an enum"),// not using ExceptionUtilities.UnexpectedValue() because this is used by the Services layer
+                };
             }
         }
 
-        private static string BuildQualifiedAssemblyName(string nameSpace, string typeName, IAssemblySymbol assemblySymbol)
+        private static string BuildQualifiedAssemblyName(string? nameSpace, string typeName, IAssemblySymbol assemblySymbol)
         {
             var symbolType = string.IsNullOrEmpty(nameSpace) ? typeName : $"{nameSpace}.{typeName}";
 
@@ -103,30 +93,28 @@ namespace ErrorProne.NET.Extensions
             return Enumerable.Any(namedType.AllInterfaces, symbol => symbol.IsType(type));
         }
 
-        public static bool IsExceptionType(this ISymbol symbol, SemanticModel model)
+        public static bool IsExceptionType(this ISymbol? symbol, SemanticModel model)
         {
-            var namedSymbol = symbol as INamedTypeSymbol;
-            if (namedSymbol == null)
+            if (!(symbol is INamedTypeSymbol namedSymbol))
             {
                 return false;
             }
 
-            var exceptionType = model.Compilation.GetTypeByMetadataName(typeof(Exception).FullName);
+            var exceptionType = model.Compilation.GetTypeByFullName(typeof(Exception).FullName);
 
-            return TraverseTypeAndItsBaseTypes(namedSymbol).Any(x => x.Equals(exceptionType));
+            return TraverseTypeAndItsBaseTypes(namedSymbol).Any(x => x.Equals(exceptionType, SymbolEqualityComparer.Default));
         }
 
-        public static bool IsArgumentExceptionType(this ISymbol symbol, SemanticModel model)
+        public static bool IsArgumentExceptionType(this ISymbol? symbol, SemanticModel model)
         {
-            var namedSymbol = symbol as INamedTypeSymbol;
-            if (namedSymbol == null)
+            if (!(symbol is INamedTypeSymbol namedSymbol))
             {
                 return false;
             }
 
-            var exceptionType = model.Compilation.GetTypeByMetadataName(typeof(ArgumentException).FullName);
+            var exceptionType = model.Compilation.GetTypeByFullName(typeof(ArgumentException).FullName);
 
-            return TraverseTypeAndItsBaseTypes(namedSymbol).Any(x => x.Equals(exceptionType));
+            return TraverseTypeAndItsBaseTypes(namedSymbol).Any(x => x.Equals(exceptionType, SymbolEqualityComparer.Default));
         }
     }
 }

@@ -9,19 +9,48 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 namespace ErrorProne.NET.CoreAnalyzers
 {
-    public readonly struct ExceptionReference
+    public readonly struct ExceptionReference : IEquatable<ExceptionReference>
     {
         public ExceptionReference(ISymbol symbol, IdentifierNameSyntax identifier)
         {
-            Contract.Requires(symbol != null);
-            Contract.Requires(identifier != null);
-
             Symbol = symbol;
             Identifier = identifier;
         }
 
         public ISymbol Symbol { get; }
         public IdentifierNameSyntax Identifier { get; }
+
+        /// <inheritdoc/>
+        public override bool Equals(object? obj)
+        {
+            return obj is ExceptionReference other &&
+                   Equals(other);
+        }
+
+        /// <inheritdoc/>
+        public bool Equals(ExceptionReference other)
+        {
+            return Symbol.Equals(other.Symbol, SymbolEqualityComparer.Default) &&
+                EqualityComparer<IdentifierNameSyntax>.Default.Equals(Identifier, other.Identifier);
+        }
+
+        /// <inheritdoc/>
+        public override int GetHashCode()
+        {
+            return (Symbol, Identifier).GetHashCode();
+        }
+
+        /// <nodoc />
+        public static bool operator ==(ExceptionReference left, ExceptionReference right)
+        {
+            return left.Equals(right);
+        }
+
+        /// <nodoc />
+        public static bool operator !=(ExceptionReference left, ExceptionReference right)
+        {
+            return !(left == right);
+        }
     }
 
     public static class ExceptionHandlingHelpers
@@ -31,9 +60,13 @@ namespace ErrorProne.NET.CoreAnalyzers
             var usages = (searchRoot ?? semanticModel.SyntaxTree.GetRoot())
                 .DescendantNodes()
                 .OfType<IdentifierNameSyntax>()
-                .Select(id => new {semanticModel.GetSymbolInfo(id).Symbol, Id = id })
+                .Select(id => new
+                {
+                    Symbol = semanticModel.GetSymbolInfo(id).Symbol,
+                    Id = id,
+                })
                 .Where(x => x.Symbol != null && x.Symbol.ExceptionFromCatchBlock())
-                .Select(x => new ExceptionReference(x.Symbol, x.Id))
+                .Select(x => new ExceptionReference(x.Symbol!, x.Id))
                 .ToList();
 
             return usages;

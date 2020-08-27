@@ -23,38 +23,36 @@ namespace ErrorProne.NET.AsyncAnalyzers
         public override ImmutableArray<string> FixableDiagnosticIds => ImmutableArray.Create(AddConfigureAwaitAnalyzer.DiagnosticId);
 
         /// <inheritdoc />
-        public override async Task RegisterCodeFixesAsync(CodeFixContext context)
+        public override Task RegisterCodeFixesAsync(CodeFixContext context)
         {
-            var root = await context.Document.GetSyntaxRootAsync(context.CancellationToken).ConfigureAwait(false);
-
-            var diagnostic = context.Diagnostics.FirstOrDefault();
-
-            if (diagnostic == null)
+            foreach (var diagnostic in context.Diagnostics)
             {
-                // Not sure why, but it seems this is possible in the batch mode.
-                return;
+                context.RegisterCodeFix(
+                    CodeAction.Create(
+                        title: RemoveConfigureAwaitTitle,
+                        createChangedDocument: c => AddConfigureAwaitAsync(context.Document, diagnostic.Location, context.CancellationToken),
+                        equivalenceKey: RemoveConfigureAwaitTitle),
+                    diagnostic);
             }
 
-            var diagnosticSpan = diagnostic.Location.SourceSpan;
-
-            var awaitExpression = root.FindToken(diagnosticSpan.Start).Parent.AncestorsAndSelf()
-                .OfType<AwaitExpressionSyntax>().First();
-
-            // Register a code action that will invoke the fix.
-            context.RegisterCodeFix(
-                CodeAction.Create(
-                    title: RemoveConfigureAwaitTitle,
-                    createChangedDocument: c => AddConfigureAwait(context.Document, awaitExpression, context.CancellationToken),
-                    equivalenceKey: RemoveConfigureAwaitTitle),
-                diagnostic);
+            return Task.CompletedTask;
         }
 
         /// <inheritdoc />
         public override FixAllProvider GetFixAllProvider() => WellKnownFixAllProviders.BatchFixer;
 
-        private async Task<Document> AddConfigureAwait(Document document, AwaitExpressionSyntax awaitExpression, CancellationToken cancellationToken)
+        private static async Task<Document> AddConfigureAwaitAsync(Document document, Location location, CancellationToken cancellationToken)
         {
-            var root = await document.GetSyntaxRootAsync(cancellationToken);
+            var root = await document.GetSyntaxRootAsync(cancellationToken).ConfigureAwait(false);
+            var parent = root?.FindToken(location.SourceSpan.Start).Parent;
+            if (parent == null)
+            {
+                return document;
+            }
+
+            var awaitExpression = parent.AncestorsAndSelf()
+                .OfType<AwaitExpressionSyntax>().First();
+
             var newExpr = SyntaxFactory.InvocationExpression(
                 SyntaxFactory.MemberAccessExpression(
                     SyntaxKind.SimpleMemberAccessExpression,
@@ -67,6 +65,12 @@ namespace ErrorProne.NET.AsyncAnalyzers
 
             var newAwaitExpression = awaitExpression.WithExpression(newExpr);
             var newRoot = root.ReplaceNode(awaitExpression, newAwaitExpression);
+
+            if (newRoot == null)
+            {
+                return document;
+            }
+
             return document.WithSyntaxRoot(newRoot);
         }
     }

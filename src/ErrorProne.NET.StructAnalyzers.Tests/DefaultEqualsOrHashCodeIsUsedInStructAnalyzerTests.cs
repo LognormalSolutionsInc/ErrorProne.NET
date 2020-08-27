@@ -1,8 +1,8 @@
-﻿using NUnit.Framework;
-using RoslynNUnitTestRunner;
+﻿using ErrorProne.NET.TestHelpers;
+using NUnit.Framework;
 using System.Collections.Generic;
 using System.Threading.Tasks;
-using VerifyCS = RoslynNUnitTestRunner.CSharpCodeFixVerifier<
+using VerifyCS = ErrorProne.NET.TestHelpers.CSharpCodeFixVerifier<
     ErrorProne.NET.StructAnalyzers.DefaultEqualsOrHashCodeIsUsedInStructAnalyzer,
     Microsoft.CodeAnalysis.Testing.EmptyCodeFixProvider>;
 
@@ -50,17 +50,6 @@ struct AnotherStruct : System.IEquatable<AnotherStruct>
     public bool Equals(AnotherStruct another) => ms.[|Equals|](another);
 }
 ";
-        }
-        
-        [TestCaseSource(nameof(GetNoDiagnosticCases))]
-        public async Task NoDiagnosticCases(string code)
-        {
-            await VerifyCS.VerifyAnalyzerAsync(code);
-        }
-
-        public static IEnumerable<string> GetNoDiagnosticCases()
-        {
-            yield break;
         }
     }
 }

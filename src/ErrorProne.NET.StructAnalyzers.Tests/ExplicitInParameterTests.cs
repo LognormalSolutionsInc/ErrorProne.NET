@@ -1,7 +1,8 @@
 ﻿using NUnit.Framework;
-using RoslynNUnitTestRunner;
+using ErrorProne.NET.TestHelpers;
 using System.Threading.Tasks;
-using VerifyCS = RoslynNUnitTestRunner.CSharpCodeFixVerifier<
+using Microsoft;
+using VerifyCS = ErrorProne.NET.TestHelpers.CSharpCodeFixVerifier<
     ErrorProne.NET.StructAnalyzers.ExplicitInParameterAnalyzer,
     ErrorProne.NET.StructAnalyzers.ExplicitInParameterCodeFixProvider>;
 
@@ -29,6 +30,19 @@ class Class {
             await VerifyCS.VerifyCodeFixAsync(code, expected);
         }
 
+        [Test]
+        public async Task ExpressionForDecimal()
+        {
+            string code = @"
+class Class {
+    void Method(in decimal value) => throw null;
+    void Caller(decimal v) => Method(-v);
+}
+";
+
+            await VerifyCS.VerifyAnalyzerAsync(code);
+        }
+        
         [Test]
         public async Task DefaultValue()
         {
@@ -274,6 +288,19 @@ struct SomeStruct {
 }
 ";
 
+            await VerifyCS.VerifyAnalyzerAsync(code);
+        }
+
+        [Test]
+        public async Task TupleExpression()
+        {
+            string code = @"
+struct SomeStruct {
+  void Method(in (int, int) value) { }
+  void Caller() { Method((0, 0)); }
+}
+";
+            
             await VerifyCS.VerifyAnalyzerAsync(code);
         }
 

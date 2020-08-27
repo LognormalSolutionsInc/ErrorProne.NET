@@ -1,6 +1,8 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Diagnostics.ContractsLight;
+using System.Linq;
 using ErrorProne.NET.Extensions;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -9,16 +11,16 @@ namespace ErrorProne.NET.ExceptionsAnalyzers
 {
     internal sealed class IfThrowPrecondition
     {
-        public IfThrowPrecondition(StatementSyntax ifThrowStaement, ThrowStatementSyntax throwStatement)
+        public IfThrowPrecondition(StatementSyntax ifThrowStatement, ThrowStatementSyntax throwStatement)
         {
-            Contract.Requires(ifThrowStaement != null);
+            Contract.Requires(ifThrowStatement != null);
             Contract.Requires(throwStatement != null);
 
-            IfThrowStaement = ifThrowStaement;
+            IfThrowStatement = ifThrowStatement;
             ThrowStatement = throwStatement;
         }
 
-        public StatementSyntax IfThrowStaement { get; }
+        public StatementSyntax IfThrowStatement { get; }
         public ThrowStatementSyntax ThrowStatement { get; }
     }
 
@@ -41,21 +43,27 @@ namespace ErrorProne.NET.ExceptionsAnalyzers
             var preconditions = new List<IfThrowPrecondition>();
 
             // Precondition block ends when something exception precondition check is met.
-            foreach (var statement in method.Body.Statements)
+            foreach (var statement in method.Body?.Statements ?? Enumerable.Empty<StatementSyntax>())
             {
                 // Currently, If-throw precondition means that
                 // if statement has only one statement in the if block
                 // and this statement is a throw of type ArgumentException
                 var ifThrowStatement = statement as IfStatementSyntax;
-                if (ifThrowStatement == null) break;
+                if (ifThrowStatement == null)
+                {
+                    break;
+                }
 
                 var block = ifThrowStatement.Statement as BlockSyntax;
-                if (block != null && block.Statements.Count != 1) break;
+                if (block != null && block.Statements.Count != 1)
+                {
+                    break;
+                }
 
                 var throwStatementCandidate = block != null ? block.Statements[0] : ifThrowStatement.Statement;
 
                 // The only valid case (when the processing should keep going)
-                // is when the if block has one statement and that statment is a throw of ArgumentException
+                // is when the if block has one statement and that statement is a throw of ArgumentException
                 if (IsThrowArgumentExceptionStatement(throwStatementCandidate, semanticModel))
                 {
                     preconditions.Add(new IfThrowPrecondition(statement, (ThrowStatementSyntax) throwStatementCandidate));
@@ -74,7 +82,10 @@ namespace ErrorProne.NET.ExceptionsAnalyzers
             var throwStatement = statement as ThrowStatementSyntax;
 
             var objectCreation = throwStatement?.Expression as ObjectCreationExpressionSyntax;
-            if (objectCreation == null) return false;
+            if (objectCreation == null)
+            {
+                return false;
+            }
 
             var symbol = semanticModel.GetSymbolInfo(objectCreation.Type).Symbol;
             return symbol.IsArgumentExceptionType(semanticModel);

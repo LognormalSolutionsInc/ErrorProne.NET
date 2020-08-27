@@ -4,7 +4,7 @@ using Microsoft.CodeAnalysis.Testing.Verifiers;
 using Microsoft.CodeAnalysis.VisualBasic;
 using Microsoft.CodeAnalysis.VisualBasic.Testing;
 
-namespace RoslynNUnitTestRunner
+namespace ErrorProne.NET.TestHelpers
 {
     public static partial class VisualBasicCodeFixVerifier<TAnalyzer, TCodeFix>
         where TAnalyzer : DiagnosticAnalyzer, new()
@@ -14,19 +14,22 @@ namespace RoslynNUnitTestRunner
         {
             public Test()
             {
+                ReferenceAssemblies = AdditionalMetadataReferences.ReferenceAssemblies;
+
                 SolutionTransforms.Add((solution, projectId) =>
                 {
                     var project = solution.GetProject(projectId);
-                    var parseOptions = (VisualBasicParseOptions)project.ParseOptions;
+                    var parseOptions = (VisualBasicParseOptions?)project?.ParseOptions;
+                    
+                    if (parseOptions == null)
+                    {
+                        return solution;
+                    }
+
                     solution = solution.WithProjectParseOptions(projectId, parseOptions.WithLanguageVersion(LanguageVersion));
 
                     return solution;
                 });
-
-                TestState.AdditionalReferences.Add(AdditionalMetadataReferences.SystemCollections);
-                TestState.AdditionalReferences.Add(AdditionalMetadataReferences.SystemCollectionsConcurrent);
-                TestState.AdditionalReferences.Add(AdditionalMetadataReferences.SystemConsole);
-                TestState.AdditionalReferences.Add(AdditionalMetadataReferences.SystemRuntime);
             }
 
             public LanguageVersion LanguageVersion { get; set; } = LanguageVersion.VisualBasic15_5;

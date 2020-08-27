@@ -1,4 +1,5 @@
-﻿using ErrorProne.NET.CoreAnalyzers;
+﻿using System.Diagnostics.ContractsLight;
+using ErrorProne.NET.CoreAnalyzers;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -14,9 +15,9 @@ namespace ErrorProne.NET.AsyncAnalyzers
         /// <nodoc />
         public const string DiagnosticId = DiagnosticIds.RedundantConfigureAwait;
 
-        private static readonly string Title = "ConfigureAwait(false) call is redundant.";
+        private const string Title = "ConfigureAwait(false) call is redundant.";
 
-        private static readonly string Description = "The assembly is configured not to use .ConfigureAwait(false)";
+        private const string Description = "The assembly is configured not to use .ConfigureAwait(false)";
         private const string Category = "CodeSmell";
 
         private const DiagnosticSeverity Severity = DiagnosticSeverity.Warning;
@@ -32,10 +33,8 @@ namespace ErrorProne.NET.AsyncAnalyzers
         }
 
         /// <inheritdoc />
-        public override void Initialize(AnalysisContext context)
+        protected override void InitializeCore(AnalysisContext context)
         {
-            context.EnableConcurrentExecution();
-
             context.RegisterSyntaxNodeAction(AnalyzeAwaitExpression, SyntaxKind.AwaitExpression);
         }
 
@@ -67,11 +66,13 @@ namespace ErrorProne.NET.AsyncAnalyzers
 
                             var argsLocation = i.ArgumentList.GetLocation();
                             var nameLocation = mae.Name.GetLocation().SourceSpan;
+                            
+                            Contract.Assert(argsLocation.SourceTree != null);
                             location = Location.Create(argsLocation.SourceTree,
                                 TextSpan.FromBounds(nameLocation.Start, argsLocation.SourceSpan.End));
                         }
 
-                        var diagnostic = Diagnostic.Create(UnnecessaryWithSuggestionDescriptor, location);
+                        var diagnostic = Diagnostic.Create(UnnecessaryWithSuggestionDescriptor!, location);
                         context.ReportDiagnostic(diagnostic);
                     }
                 }

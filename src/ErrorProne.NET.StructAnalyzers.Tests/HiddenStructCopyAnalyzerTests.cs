@@ -1,8 +1,9 @@
-﻿using NUnit.Framework;
-using RoslynNUnitTestRunner;
+﻿using ErrorProne.NET.TestHelpers;
+using NUnit.Framework;
 using System.Collections.Generic;
+using System.Security.Cryptography.X509Certificates;
 using System.Threading.Tasks;
-using VerifyCS = RoslynNUnitTestRunner.CSharpCodeFixVerifier<
+using VerifyCS = ErrorProne.NET.TestHelpers.CSharpCodeFixVerifier<
     ErrorProne.NET.StructAnalyzers.HiddenStructCopyAnalyzer,
     Microsoft.CodeAnalysis.Testing.EmptyCodeFixProvider>;
 
@@ -11,6 +12,199 @@ namespace ErrorProne.NET.StructAnalyzers.Tests
     [TestFixture]
     public class HiddenStructCopyAnalyzerTests
     {
+        [Test]
+        public async Task NoWarnOnDispose()
+        {
+            // Dispose method is special: indeed it causes a hidden copy,
+            // but its kind of by design, and it can't be called to often.
+            // So Dispose calls should not cause warnings.
+            string code = @"
+struct Struct : System.IDisposable
+{
+ private readonly long l1, l2, l3;
+
+ public void Dispose() {} 
+}
+class Test
+{
+  private readonly Struct _s;
+  void Foo() {
+    _s.Dispose();
+  }
+}";
+            await VerifyCS.VerifyAnalyzerAsync(code);
+        }
+
+        [Test]
+        public async Task WarnOnDisposeNotFromIDisposable()
+        {
+            string code = @"
+struct Struct
+{
+ private readonly long l1, l2, l3;
+
+ public void Dispose() {} 
+}
+class Test
+{
+  private readonly Struct _s;
+  void Foo() {
+    _s.[|Dispose|]();
+  }
+}";
+            await VerifyCS.VerifyAsync(code);
+        }
+        
+        [Test]
+        public async Task WarOnMethodCall()
+        {
+            string code = @"
+public struct TestStruct
+    {
+        private long l1, l2, l3;
+
+        public int GetValue() => 42;
+    }
+
+    public static class Program
+    {
+        public static int GetValue(in TestStruct test)
+        {
+            return test.[|GetValue|]();
+        }
+    }";
+            await VerifyCS.VerifyAsync(code);
+        }
+        
+        [Test]
+        public async Task WarnForOperators()
+        {
+            string code = @"
+public struct S
+    {
+        private long l1, l2, l3;
+
+        public int GetValue() => 42;
+        public static int operator+(in S lhs, in S rhs) => lhs.[|GetValue|]() + rhs.[|GetValue|]();
+    }
+";
+            await VerifyCS.VerifyAsync(code);
+        }
+        
+        [Test]
+        public async Task WarnForOperatorApplication()
+        {
+            string code = @"
+public struct S
+    {
+        private long l1, l2, l3;
+
+        public int GetValue() => 42;
+        public static S operator+(S lhs, int n) => default;
+        public static void TestCase() {
+            var s = new S();
+            var s2 = s + 1;
+        }
+    }
+";
+            await VerifyCS.VerifyAsync(code);
+        }
+
+        [Test]
+        public async Task NoWarOnReadOnlyMethodCall()
+        {
+            string code = @"
+public struct TestStruct
+    {
+        private long l1, l2, l3;
+
+        public readonly int GetValue() => 42;
+    }
+
+    public static class Program
+    {
+        public static int GetValue(in TestStruct test)
+        {
+            return test.GetValue();
+        }
+    }";
+            await VerifyCS.VerifyAsync(code);
+        }
+
+        [Test]
+        public async Task NoWarnOnPropertyGetter()
+        {
+            string code = @"
+struct Struct1
+{
+ private readonly long l1, l2, l3;
+}
+
+struct Struct2
+{
+  private readonly long l1, l2, l3;
+  // get-only properties are implicitly marked with IsReadOnly attribute
+  public Struct1 S1 {get;}
+}
+class Class {
+  public readonly Struct2 S2;
+}
+class Test
+{
+  void Foo() {
+    Class s3 = default;
+    var s = s3?.S2.S1.ToString();
+  }
+}";
+            await VerifyCS.VerifyAnalyzerAsync(code);
+        }
+
+        [Test]
+        public async Task NoWarOnAutoProperties()
+        {
+            // The getters in auto-properties are implicitly marked with readonly
+            string code = @"
+public struct TestStruct
+    {
+        private long l1, l2, l3;
+
+        public int X {get;set;}
+    }
+
+    public static class Program
+    {
+        public static int GetValue(in TestStruct test)
+        {
+            return test.X;
+        }
+    }";
+            await VerifyCS.VerifyAsync(code);
+        }
+        
+        [Test]
+        public async Task WarnOnGetOnlyPropertyWithoutReadonlyModifier()
+        {
+            // The getters in auto-properties are implicitly marked with readonly
+            string code = @"
+public struct TestStruct
+    {
+        private long l1, l2, l3;
+
+        public readonly int X => 42;
+        public int Y => 42;
+    }
+
+    public static class Program
+    {
+        public static int GetValue(in TestStruct test)
+        {
+            // X is readonly, no hidden copies there.
+            return test.X + test.[|Y|];
+        }
+    }";
+            await VerifyCS.VerifyAsync(code);
+        }
+        
         [Test]
         public async Task NoWarningsOnExtensionMethods()
         {
@@ -34,7 +228,7 @@ class Test
         }
 
         [Test]
-        public async Task NoNullRefeferenceExceptionWhenExtensionMethodIsCalledAsAMethod()
+        public async Task NoNullReferenceExceptionWhenExtensionMethodIsCalledAsAMethod()
         {
             string code = @"
 static class Ex {
@@ -43,11 +237,25 @@ static class Ex {
 }";
             await VerifyCS.VerifyAnalyzerAsync(code);
         }
-
+        
+        [Test]
+        public async Task NoWarningsForAccessingNullableProperties()
+        {
+            string code = @"
+class Foo {
+    private readonly (string s, string y)? _tuple;
+    private void Test() {
+        var b = _tuple.HasValue; // No hidden copies
+        var s = _tuple.Value.s; // No hidden copies, this is an explicit copy!
+    }
+}";
+            await VerifyCS.VerifyAnalyzerAsync(code);
+        }
+        
         [Test]
         public async Task HasDiagnosticsForMethodCallsOnReadOnlyField()
         {
-            string code = @"struct S {private readonly long l1,l2; public int Foo() => 42;} class Foo {private readonly S _s; public string Bar() => _s.[|Foo|]().ToString();}";
+            string code = @"struct S {private readonly long l1,l2,l3; public int Foo() => 42;} class Foo {private readonly S _s; public string Bar() => _s.[|Foo|]().ToString();}";
             await new VerifyCS.Test
             {
                 TestState = { Sources = { code } },
@@ -57,7 +265,7 @@ static class Ex {
         [Test]
         public async Task HasDiagnosticsForMethodCallsOnInParameter()
         {
-            string code = @"struct S {private readonly long l1,l2; public int Foo() => 42;} class Foo {public int Bar(in S s) => s.[|Foo|]();}";
+            string code = @"struct S {private readonly long l1,l2,l3; public int Foo() => 42;} class Foo {public int Bar(in S s) => s.[|Foo|]();}";
             await new VerifyCS.Test
             {
                 TestState = { Sources = { code } },
@@ -68,7 +276,7 @@ static class Ex {
         public async Task HasDiagnosticsForMethodCallsOnRefReadOnly()
         {
             string code = @"
-struct S { private readonly long l1,l2; public int Foo() => 42; }
+struct S { private readonly long l1,l2,l3; public int Foo() => 42; }
 class Foo {
     public int Bar(S s)
     {
@@ -87,7 +295,7 @@ class Foo {
         {
             string code = @"
 struct S {
-    private readonly long l1,l2; 
+    private readonly long l1,l2,l3; 
     public string this[int x] => string.Empty;
 }
 public class C {
@@ -105,7 +313,7 @@ public class C {
         {
             string code = @"
 readonly struct S {
-    private readonly long l1,l2; 
+    private readonly long l1,l2,l3; 
     public static void Sample() {
        S s = default(S);
        s.[|Foo|]();
@@ -151,7 +359,7 @@ public class C {
         }
 
         [Test]
-        public async Task NoDiagnosticsFieldOfReferencecType()
+        public async Task NoDiagnosticsFieldOfReferenceType()
         {
             string code = @"
 class S {
@@ -224,7 +432,7 @@ class Foo {private readonly S _s; public string Bar() => _s.ToString();}";
         {
             // On extension method that takes 'this' by value
             yield return @"
-readonly struct S { private readonly long l1,l2; public int X => 42;}
+readonly struct S { private readonly long l1,l2,l3; public int X => 42;}
 static class SEx {
     public static int GetX(this S s) => s.X;
 
@@ -232,18 +440,18 @@ static class SEx {
 }";
 
             // On for properties
-            yield return "struct S { private readonly long l1,l2; public int X => 42;} class Foo {private readonly S _s; public int Bar() => _s.[|X|];}";
+            yield return "struct S { private readonly long l1,l2,l3; public int X => 42;} class Foo {private readonly S _s; public int Bar() => _s.[|X|];}";
 
             // On composite dotted expression like a.b.c.ToString();
-            yield return "struct S { private readonly long l1,l2; public int X => 42;} class Foo {private readonly S _s; public string Bar() => _s.[|X|].ToString();}";
+            yield return "struct S { private readonly long l1,l2,l3; public int X => 42;} class Foo {private readonly S _s; public string Bar() => _s.[|X|].ToString();}";
 
             // On for methods
-            yield return "struct S {private readonly long l1,l2; public int X() => 42;} class Foo {private readonly S _s; public int Bar() => _s.[|X|]();}";
+            yield return "struct S {private readonly long l1,l2,l3; public int X() => 42;} class Foo {private readonly S _s; public int Bar() => _s.[|X|]();}";
 
             // On for indexers
             yield return @"
 struct S {
-    private readonly long l1,l2; 
+    private readonly long l1,l2,l3; 
     public string this[int x] => string.Empty;
 }
 public class C {
@@ -254,7 +462,7 @@ public class C {
             // On readonly ref returns
             yield return @"
 struct S {
-    private readonly long l1,l2; 
+    private readonly long l1,l2,l3; 
 }
 public class C {
     private readonly S _s;
@@ -284,7 +492,7 @@ static class SEx {
 
             // No diagnostics if 'this' is passed by 'in'
             yield return @"
-readonly struct S { private readonly long l1,l2; public int X => 42;}
+readonly struct S { private readonly long l1,l2,l3; public int X => 42;}
 static class SEx {
     public static int GetX(in this S s) => s.X;
 

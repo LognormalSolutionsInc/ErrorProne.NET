@@ -1,17 +1,13 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>netstandard1.3</TargetFramework>
+    <TargetFramework>netstandard2.0</TargetFramework>
     <AssemblyName>ErrorProne.Net.CoreAnalyzers.CodeFixes</AssemblyName>
     <RootNamespace>ErrorProne.NET</RootNamespace>
     <IncludeBuildOutput>false</IncludeBuildOutput>
     <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
     <!-- Needed here to copy all the dependencies to an output folder-->
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
-  </PropertyGroup>
-
-  <PropertyGroup>
-    <TargetFramework>netstandard1.3</TargetFramework>
   </PropertyGroup>
 
   <PropertyGroup>
@@ -22,24 +18,34 @@
     <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
     <Description>Core .NET analyzers for detecting the most common coding issues</Description>
     <PackageReleaseNotes>
-* EPC11: warns when Equals method is potentially implemented incorrectly.
-* EPC12: warns when generic exception instance is not fully observed (only `Message` was accessed in catch block).
-* EPC13: warns when possible-like result is not observed.
-* EPC14: warns when `ConfigureAwait(false)` is used even though a project is configured not to use it.
-* EPC15: warns when `ConfigureAwait(false)` is not used on an awaited task but a project is configured to always use it.
-* EPC16: null-conditional operator is used in await expression causing NRE if a task is null.
-</PackageReleaseNotes>
+        0.3.0
+        * EPC17: warns when async void delegate is accidentally created where `Action` should be used.
+        * ERP031: warns when some unsafe methods are used for `ConcurrentDictionary` instance like `ToArray`.
+        * 
+
+        0.2.0
+        * EPC11: warns when Equals method is potentially implemented incorrectly.
+        * EPC12: warns when generic exception instance is not fully observed (only `Message` was accessed in catch block).
+        * EPC13: warns when possible-like result is not observed.
+        * EPC14: warns when `ConfigureAwait(false)` is used even though a project is configured not to use it.
+        * EPC15: warns when `ConfigureAwait(false)` is not used on an awaited task but a project is configured to always use it.
+        * EPC16: null-conditional operator is used in await expression causing NRE if a task is null.
+    </PackageReleaseNotes>
     <Copyright>Copyright Sergey Teplyakov</Copyright>
     <PackageTags>ErrorProne.NET, analyzers</PackageTags>
     <NoPackageAnalysis>true</NoPackageAnalysis>
     <DevelopmentDependency>true</DevelopmentDependency>
+    <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
     <TargetsForTfmSpecificContentInPackage>$(TargetsForTfmSpecificContentInPackage);_GetFilesToPackage</TargetsForTfmSpecificContentInPackage>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.CodeAnalysis" Version="2.9.0" />
-    <PackageReference Include="Microsoft.CodeAnalysis.Analyzers" Version="2.9.0" PrivateAssets="all" />
-    <PackageReference Include="RuntimeContracts" Version="0.1.7.2" />
+    <PackageReference Include="Microsoft.CodeAnalysis" Version="3.5.0" />
+    <PackageReference Include="Microsoft.CodeAnalysis.Analyzers" Version="3.0.0" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.CodeAnalysis.FxCopAnalyzers" Version="3.0.0">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
   </ItemGroup>
 
   <ItemGroup>
@@ -51,9 +57,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Analyzer packages should not have any dependencies. -->
-    <PackageReference Update="@(PackageReference)" PrivateAssets="all" />
-    <ProjectReference Update="@(ProjectReference)" PrivateAssets="all" />
+    <PackageReference Update="Nerdbank.GitVersioning" Version="3.1.91" />
   </ItemGroup>
 
   <Target Name="_GetFilesToPackage">

@@ -12,9 +12,9 @@ namespace ErrorProne.NET.AsyncAnalyzers
         /// <nodoc />
         public const string DiagnosticId = DiagnosticIds.NullCoalescingOperatorForAsyncMethods;
 
-        private static readonly string Title = "Awaiting the result of a null-conditional expression may cause NullReferenceException.";
+        private const string Title = "Awaiting the result of a null-conditional expression will cause NullReferenceException.";
 
-        private static readonly string Description = "Null-conditional operator returns null when lhs is null, causing NRE when a task is awaited.";
+        private const string Description = "Null-conditional operator returns null when 'lhs' is null, causing NRE when a task is awaited.";
         private const string Category = "CodeSmell";
 
         private const DiagnosticSeverity Severity = DiagnosticSeverity.Warning;
@@ -30,10 +30,8 @@ namespace ErrorProne.NET.AsyncAnalyzers
         }
 
         /// <inheritdoc />
-        public override void Initialize(AnalysisContext context)
+        protected override void InitializeCore(AnalysisContext context)
         {
-            context.EnableConcurrentExecution();
-
             context.RegisterSyntaxNodeAction(AnalyzeAwaitExpression, SyntaxKind.AwaitExpression);
         }
 
@@ -41,7 +39,7 @@ namespace ErrorProne.NET.AsyncAnalyzers
         {
             var invocation = (AwaitExpressionSyntax)context.Node;
 
-            if (invocation.Expression is ConditionalAccessExpressionSyntax cae)
+            if (invocation.Expression is ConditionalAccessExpressionSyntax)
             {
                 var location = invocation.GetLocation();
                 var diagnostic = Diagnostic.Create(Rule, location);

@@ -1,6 +1,5 @@
 ﻿using System.Collections.Immutable;
 using System.Composition;
-using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -22,27 +21,19 @@ namespace ErrorProne.NET.StructAnalyzers
         public const string Title = "Pass readonly struct with 'in'-modifier";
 
         /// <inheritdoc />
-        public override async Task RegisterCodeFixesAsync(CodeFixContext context)
+        public override Task RegisterCodeFixesAsync(CodeFixContext context)
         {
-            var root = await context.Document.GetSyntaxRootAsync(context.CancellationToken).ConfigureAwait(false);
-
-            var diagnostic = context.Diagnostics.First();
-            var diagnosticSpan = diagnostic.Location.SourceSpan;
-
-            // Find the type declaration identified by the diagnostic.
-            var declaration = root.FindToken(diagnosticSpan.Start).Parent.AncestorsAndSelf().OfType<ParameterSyntax>().FirstOrDefault();
-
-            // It is possible for some weird cases to not have 'ParameterSyntax'. See 'WarnIfParameterIsReadOnly' in UseInModifierAnalyzer.
-            if (declaration != null && !await ParameterIsUsedInNonInFriendlyManner(declaration, context.Document, context.CancellationToken).ConfigureAwait(false))
+            foreach (var diagnostic in context.Diagnostics)
             {
-                // Register a code action that will invoke the fix.
                 context.RegisterCodeFix(
                     CodeAction.Create(
                         title: Title,
-                        createChangedDocument: c => AddInModifier(context.Document, declaration, c),
+                        createChangedDocument: c => AddInModifierAsync(context.Document, diagnostic.Location, c),
                         equivalenceKey: Title),
                     diagnostic);
             }
+
+            return Task.CompletedTask;
         }
 
         /// <inheritdoc />
@@ -51,7 +42,7 @@ namespace ErrorProne.NET.StructAnalyzers
         /// <inheritdoc />
         public override FixAllProvider GetFixAllProvider() => WellKnownFixAllProviders.BatchFixer;
 
-        private async Task<bool> ParameterIsUsedInNonInFriendlyManner(ParameterSyntax parameter, Document document, CancellationToken token)
+        private static async Task<bool> ParameterIsUsedInNonInFriendlyMannerAsync(ParameterSyntax parameter, Document document, CancellationToken token)
         {
             if (!document.SupportsSemanticModel)
             {
@@ -59,14 +50,14 @@ namespace ErrorProne.NET.StructAnalyzers
                 return true;
             }
 
-            var semanticModel = await document.GetSemanticModelAsync(token);
+            var semanticModel = await document.GetSemanticModelAsync(token).ConfigureAwait(false);
             var paramSymbol = semanticModel.GetDeclaredSymbol(parameter);
             var references = await SymbolFinder.FindReferencesAsync(paramSymbol, document.Project.Solution, token).ConfigureAwait(false);
 
             var syntaxRoot = await document.GetSyntaxRootAsync(token).ConfigureAwait(false);
 
             var method = parameter.Ancestors().OfType<MethodDeclarationSyntax>().FirstOrDefault();
-            if (method == null)
+            if (syntaxRoot  == null || method == null)
             {
                 // Don't have a method (could be an indexer). This is not yet supported, so avoid showing the code fix.
                 return true;
@@ -115,17 +106,29 @@ namespace ErrorProne.NET.StructAnalyzers
             return false;
         }
 
-        private async Task<Document> AddInModifier(Document document, ParameterSyntax paramSyntax, CancellationToken cancellationToken)
+        private static async Task<Document> AddInModifierAsync(Document document, Location location, CancellationToken cancellationToken)
         {
+            var root = await document.GetSyntaxRootAsync(cancellationToken).ConfigureAwait(false);
+
+            // Find the type declaration identified by the diagnostic.
+            var paramSyntax = root
+                ?.FindToken(location.SourceSpan.Start)
+                .Parent?.AncestorsAndSelf()
+                .OfType<ParameterSyntax>()
+                .FirstOrDefault();
+            if (paramSyntax is null || await ParameterIsUsedInNonInFriendlyMannerAsync(paramSyntax, document, cancellationToken).ConfigureAwait(false))
+            {
+                // It is possible for some weird cases to not have 'ParameterSyntax'. See 'WarnIfParameterIsReadOnly' in UseInModifierAnalyzer.
+                return document;
+            }
+
             SyntaxTriviaList trivia = paramSyntax.GetLeadingTrivia(); ;
 
             var newType = paramSyntax
                 .WithModifiers(paramSyntax.Modifiers.Insert(0, SyntaxFactory.Token(SyntaxKind.InKeyword)))
                 .WithLeadingTrivia(trivia);
 
-            var root = await document.GetSyntaxRootAsync(cancellationToken).ConfigureAwait(false);
-
-            return document.WithSyntaxRoot(root.ReplaceNode(paramSyntax, newType));
+            return document.ReplaceSyntaxRoot(root.ReplaceNode(paramSyntax, newType));
         }
     }
 }

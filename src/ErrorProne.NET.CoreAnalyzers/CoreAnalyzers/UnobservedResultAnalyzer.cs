@@ -22,10 +22,10 @@ namespace ErrorProne.NET.CoreAnalyzers
         /// <nodoc />
         public const string DiagnosticId = DiagnosticIds.UnobservedResult;
 
-        private static readonly string Title = "Suspiciously unobserved result.";
-        private static readonly string Message = "Result of type '{0}' should be observed.";
+        private const string Title = "Suspiciously unobserved result.";
+        private const string Message = "The result of type '{0}' should be observed.";
 
-        private static readonly string Description = "Return values of some methods should be observed.";
+        private const string Description = "Return values of some methods should always be observed.";
         private const string Category = "CodeSmell";
 
         // Using warning for visibility purposes
@@ -47,6 +47,7 @@ namespace ErrorProne.NET.CoreAnalyzers
         public override void Initialize(AnalysisContext context)
         {
             context.EnableConcurrentExecution();
+            context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.Analyze | GeneratedCodeAnalysisFlags.ReportDiagnostics);
 
             context.RegisterSyntaxNodeAction(AnalyzeAwaitExpression, SyntaxKind.AwaitExpression);
             context.RegisterSyntaxNodeAction(AnalyzeMethodInvocation, SyntaxKind.InvocationExpression);
@@ -88,7 +89,7 @@ namespace ErrorProne.NET.CoreAnalyzers
             var awaitExpression = (AwaitExpressionSyntax)context.Node;
 
             // await can be used on a task value, so the awaited expression may be anything.
-            if (awaitExpression.Parent is ExpressionStatementSyntax ex)
+            if (awaitExpression.Parent is ExpressionStatementSyntax)
             {
                 var operation = context.SemanticModel.GetOperation(awaitExpression);
                 if (operation is IAwaitOperation awaitOperation && operation.Type != null && TypeMustBeObserved(operation.Type, null, context.Compilation))
@@ -109,7 +110,7 @@ namespace ErrorProne.NET.CoreAnalyzers
             }
         }
 
-        private bool ResultObservedByExtensionMethod(IInvocationOperation operation, SemanticModel semanticModel)
+        private static bool ResultObservedByExtensionMethod(IInvocationOperation operation, SemanticModel semanticModel)
         {
             // In some cases, the following pattern is used:
             // Foo().Handle();
@@ -126,17 +127,17 @@ namespace ErrorProne.NET.CoreAnalyzers
 
             // First, checking that method that is called is an extension method that takes the result.
             if (methodSymbol.IsExtensionMethod &&
-                (methodSymbol.ReturnType.Equals(methodSymbol.ReceiverType) ||
-                 methodSymbol.ReturnType.Equals(methodSymbol.Parameters.FirstOrDefault()?.Type)))
+                (methodSymbol.ReturnType.Equals(methodSymbol.ReceiverType, SymbolEqualityComparer.Default) ||
+                 methodSymbol.ReturnType.Equals(methodSymbol.Parameters.FirstOrDefault()?.Type, SymbolEqualityComparer.Default)))
             {
                 // operation.Type returns a type for 'Foo()'.
-                return operation.Type.Equals(methodSymbol.ReturnType);
+                return operation.Type.Equals(methodSymbol.ReturnType, SymbolEqualityComparer.Default);
             }
 
             return false;
         }
 
-        private Location GetLocationForDiagnostic(AwaitExpressionSyntax awaitExpression)
+        private static Location GetLocationForDiagnostic(AwaitExpressionSyntax awaitExpression)
         {
             return awaitExpression.GetLocation();
         }
@@ -149,7 +150,7 @@ namespace ErrorProne.NET.CoreAnalyzers
             context.ReportDiagnostic(diagnostic);
         }
 
-        private bool TypeMustBeObserved(ITypeSymbol type, /*CanBeNull*/IMethodSymbol method, Compilation compilation)
+        private static bool TypeMustBeObserved(ITypeSymbol type, IMethodSymbol? method, Compilation compilation)
         {
             if (method?.IsContinueWith(compilation) == true)
             {
@@ -157,14 +158,14 @@ namespace ErrorProne.NET.CoreAnalyzers
                 return false;
             }
 
-            return EnumerateBaseTypesAndSelf(type).Any(t => IsObserableType(t, method, compilation));
+            return EnumerateBaseTypesAndSelf(type).Any(t => IsObservableType(t, method, compilation));
         }
 
-        private static bool IsObserableType(ITypeSymbol type, /*CanBeNull*/IMethodSymbol method, Compilation compilation)
+        private static bool IsObservableType(ITypeSymbol type, IMethodSymbol? method, Compilation compilation)
         {
             if (type.IsClrType(compilation, typeof(Exception)))
             {
-                // 'ThrowExcpetion' method that throws but still returns an exception is quite common.
+                // 'ThrowException' method that throws but still returns an exception is quite common.
                 var methodName = method?.Name;
                 if (methodName == null)
                 {
@@ -201,10 +202,11 @@ namespace ErrorProne.NET.CoreAnalyzers
 
         public static IEnumerable<ITypeSymbol> EnumerateBaseTypesAndSelf(ITypeSymbol type)
         {
-            while (type != null)
+            ITypeSymbol? t = type;
+            while (t != null)
             {
-                yield return type;
-                type = type.BaseType;
+                yield return t;
+                t = t.BaseType;
             }
         }
     }
@@ -218,5 +220,4 @@ namespace ErrorProne.NET.CoreAnalyzers
             return (simpleMemberAccess?.Name ?? invocationExpression.Expression).GetLocation();
         }
     }
-
 }

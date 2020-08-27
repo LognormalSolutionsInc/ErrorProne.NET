@@ -1,4 +1,5 @@
-﻿using System.Linq;
+﻿using System.Diagnostics.ContractsLight;
+using System.Linq;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -20,16 +21,14 @@ namespace ErrorProne.NET.CoreAnalyzers
         /// <nodoc />
         public const string DiagnosticId = DiagnosticIds.SuspiciousExceptionHandling;
 
-        public const string DiagnosticIdWithoutSuggestion = DiagnosticIds.SuspiciousExceptionHandling + "WithoutSuggestion";
-
         private const string Title =
-            "Suspicious exception handling: only Message property is observed in exception block.";
+            "Suspicious exception handling: only the 'Message' property is observed in the catch block.";
 
         private const string MessageFormat =
-            "Suspicious exception handling: only {0}.Message is observed in exception block.";
+            "Suspicious exception handling: only '{0}.Message' is observed in the catch block.";
 
         private const string Description =
-            "In many cases Message property contains irrelevant information and actual data is kept in inner exceptions.";
+            "In many cases the 'Message' property contains irrelevant information and actual data is kept in inner exceptions.";
 
         private const string Category = "CodeSmell";
 
@@ -42,10 +41,8 @@ namespace ErrorProne.NET.CoreAnalyzers
         }
 
         /// <inheritdoc />
-        public override void Initialize(AnalysisContext context)
+        protected override void InitializeCore(AnalysisContext context)
         {
-            context.EnableConcurrentExecution();
-
             // I don't know why yet, but selecting SytaxKind.CatchClause lead to very strange behavior:
             // AnalyzeSyntax method would called for a few times and the same warning would be added to diagnostic list!
             // Using IdentifierName syntax instead.
@@ -97,8 +94,12 @@ namespace ErrorProne.NET.CoreAnalyzers
                 foreach (var messageUsage in messageUsages)
                 {
                     // "Fading" .Message property usage.
+                    var parent = messageUsage.Parent;
+                    Contract.Assert(parent != null);
+                    Contract.Assert(messageUsage.Parent != null);
+
                     var fadingSpan = Location.Create(context.Node.SyntaxTree,
-                        TextSpan.FromBounds(messageUsage.Parent.Name.Span.Start, messageUsage.Parent.Name.Span.End));
+                        TextSpan.FromBounds(parent.Name.Span.Start, messageUsage.Parent.Name.Span.End));
 
                     var location = messageUsage.Id.GetLocation();
 
@@ -106,7 +107,7 @@ namespace ErrorProne.NET.CoreAnalyzers
                         Diagnostic.Create(DiagnosticDescriptor, location, messageUsage.Id.Identifier.Text));
 
                     context.ReportDiagnostic(
-                        Diagnostic.Create(UnnecessaryWithSuggestionDescriptor, fadingSpan));
+                        Diagnostic.Create(UnnecessaryWithSuggestionDescriptor!, fadingSpan));
                 }
             }
         }

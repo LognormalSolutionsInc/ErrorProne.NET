@@ -4,8 +4,8 @@
 //  
 // --------------------------------------------------------------------
 
-using System;
 using System.Collections.Generic;
+using System.Linq;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
@@ -13,19 +13,27 @@ namespace ErrorProne.NET.Core
 {
     public static class FlowAnalysisExtensions
     {
-        public static IEnumerable<DataFlowAnalysis> AnalyzeDataflow(this SyntaxNode node, SemanticModel model)
+        public static IEnumerable<DataFlowAnalysis?> AnalyzeDataflow(this SyntaxNode node, SemanticModel model)
         {
-            if (node is PropertyDeclarationSyntax property && property.AccessorList?.Accessors.Count > 0)
+            if (node is PropertyDeclarationSyntax property)
             {
-                foreach (var accessor in property.AccessorList.Accessors)
+                if (property.ExpressionBody != null)
                 {
-                    if (accessor.Body != null)
+                    yield return model.AnalyzeDataFlow(property.ExpressionBody.Expression);
+                }
+
+                if (property.AccessorList != null)
+                {
+                    foreach (var accessor in property.AccessorList.Accessors)
                     {
-                        yield return model.AnalyzeDataFlow(accessor.Body);
-                    }
-                    else if (accessor.ExpressionBody != null)
-                    {
-                        yield return model.AnalyzeDataFlow(accessor.ExpressionBody);
+                        if (accessor.Body != null)
+                        {
+                            yield return model.AnalyzeDataFlow(accessor.Body);
+                        }
+                        else if (accessor.ExpressionBody != null)
+                        {
+                            yield return model.AnalyzeDataFlow(accessor.ExpressionBody.Expression);
+                        }
                     }
                 }
             }
@@ -35,7 +43,23 @@ namespace ErrorProne.NET.Core
             }
         }
 
-        public static DataFlowAnalysis AnalyzeMethod(this MethodDeclarationSyntax method, SemanticModel model)
+        public static DataFlowAnalysis? AnalyzeDataFlow(this IMethodSymbol method, SemanticModel model)
+        {
+            var syntax = method.DeclaringSyntaxReferences.FirstOrDefault()?.GetSyntax();
+            if (syntax is MethodDeclarationSyntax methodSyntax)
+            {
+                return AnalyzeMethod(methodSyntax, model);
+            }
+            
+            if (syntax is ArrowExpressionClauseSyntax aes)
+            {
+                return model.AnalyzeDataFlow(aes.Expression);
+            }
+
+            return null;
+        }
+
+        public static DataFlowAnalysis? AnalyzeMethod(this MethodDeclarationSyntax method, SemanticModel model)
         {
             if (method.Body != null)
             {
@@ -56,15 +80,6 @@ namespace ErrorProne.NET.Core
             {
                 yield return model.AnalyzeDataFlow(property.ExpressionBody);
             }
-
-            //if (property.AccessorList)
-
-            //if (property.ExpressionBody != null)
-            //{
-            //    return model.AnalyzeDataFlow(property.ExpressionBody.Expression);
-            //}
-
-            //return null;
         }
     }
 }

@@ -20,12 +20,12 @@ namespace ErrorProne.NET.CoreAnalyzers
         /// <nodoc />
         public const string DiagnosticId = DiagnosticIds.SuspiciousEqualsMethodImplementation;
 
-        private static readonly string RhsTitle = "Suspicious equality implementation: Equals method does not use rhs-parameter.";
-        private static readonly string RhsMessageFormat = "Suspicious equality implementation: parameter {0} is never used.";
-        private static readonly string RhsDescription = "Equals method implementation that does not uses another instance is suspicious.";
+        private const string RhsTitle = "Suspicious equality implementation: Equals method does not use rhs-parameter.";
+        private const string RhsMessageFormat = "Suspicious equality implementation: parameter '{0}' is never used.";
+        private const string RhsDescription = "Equals method implementation that does not uses another instance is suspicious.";
 
-        private static readonly string Title = "Suspicious equality implementation: no instance members are used.";
-        private static readonly string Description = "Equals method implementation that does not uses any instance members is suspicious.";
+        private const string Title = "Suspicious equality implementation: no instance members are used.";
+        private const string Description = "Equals method implementation that does not uses any instance members is suspicious.";
         private const string Category = "CodeSmell";
 
         // Using warning for visibility purposes
@@ -46,33 +46,31 @@ namespace ErrorProne.NET.CoreAnalyzers
         }
 
         /// <inheritdoc />
-        public override void Initialize(AnalysisContext context)
+        protected override void InitializeCore(AnalysisContext context)
         {
-            context.EnableConcurrentExecution();
-
             // I didn't figure out the way to find all the symbols used in a method.
             // The only solution to find if a method references instance members or not is to use
             // a long chain of 'RegisterSomAction' methods.
-            context.RegisterCompilationStartAction(compilationContext =>
+            context.RegisterCompilationStartAction(context =>
             {
-                compilationContext.RegisterOperationBlockStartAction(blockStartContext =>
+                context.RegisterOperationBlockStartAction(context =>
                 {
                     // Only interested in 'object.Equals' and `IEquatable<T>.Equals' methods
-                    if (blockStartContext.OwningSymbol is IMethodSymbol ms &&
+                    if (context.OwningSymbol is IMethodSymbol ms &&
                         !OnlyThrow(ms) &&
-                        (OverridesEquals(ms, blockStartContext.Compilation) || ImplementsEquals(ms, blockStartContext.Compilation)))
+                        (OverridesEquals(ms, context.Compilation) || ImplementsEquals(ms, context.Compilation)))
                     {
                         // Checking that Equals method accesses instance members
                         if (HasInstanceMembers(ms.ContainingType))
                         {
                             bool isInstanceReferenced = false;
 
-                            blockStartContext.RegisterOperationAction(operationContext =>
+                            context.RegisterOperationAction(context =>
                             {
                                 isInstanceReferenced = true;
                             }, OperationKind.InstanceReference);
 
-                            blockStartContext.RegisterOperationBlockEndAction(blockEndContext =>
+                            context.RegisterOperationBlockEndAction(context =>
                             {
                                 if (!isInstanceReferenced)
                                 {
@@ -80,7 +78,7 @@ namespace ErrorProne.NET.CoreAnalyzers
                                         InstanceMembersAreNotUsedRule,
                                         ms.Locations[0]);
 
-                                    blockEndContext.ReportDiagnostic(diagnostic);
+                                    context.ReportDiagnostic(diagnostic);
                                 }
 
                                 // Checking that Equals method uses 'obj' parameter
@@ -89,9 +87,12 @@ namespace ErrorProne.NET.CoreAnalyzers
                                     return;
                                 }
 
-                                var bodyOrExpression = (SyntaxNode)methodSyntax.Body ?? methodSyntax.ExpressionBody;
-                                var symbols = SymbolExtensions.GetAllUsedSymbols(blockStartContext.Compilation, bodyOrExpression).ToList();
-                                if (!symbols.Any(s => s is IParameterSymbol p && p.ContainingSymbol == ms && !p.IsThis))
+                                var bodyOrExpression = (SyntaxNode?)methodSyntax.Body ?? methodSyntax.ExpressionBody;
+                                
+                                Contract.Assert(bodyOrExpression != null);
+                                var symbols = SymbolExtensions.GetAllUsedSymbols(context.Compilation, bodyOrExpression).ToList();
+                                if (!symbols.Any(s => 
+                                    s is IParameterSymbol p && p.ContainingSymbol.Equals(ms, SymbolEqualityComparer.Default) && !p.IsThis))
                                 {
                                     var location = ms.Parameters[0].Locations[0];
 
@@ -101,13 +102,13 @@ namespace ErrorProne.NET.CoreAnalyzers
                                         location,
                                         ms.Parameters[0].Name);
 
-                                    blockEndContext.ReportDiagnostic(diagnostic);
+                                    context.ReportDiagnostic(diagnostic);
 
                                     // Fading 'obj' away
 
-                                    blockEndContext.ReportDiagnostic(
+                                    context.ReportDiagnostic(
                                         Diagnostic.Create(
-                                            UnnecessaryWithSuggestionDescriptor,
+                                            UnnecessaryWithSuggestionDescriptor!,
                                             location));
                                 }
                             });
@@ -121,7 +122,7 @@ namespace ErrorProne.NET.CoreAnalyzers
             => method.IsOverride &&
                method.OverriddenMethod != null &&
                method.OverriddenMethod.Name == "Equals" &&
-               (method.OverriddenMethod.ContainingType.IsSystemObject(compilation) ||
+               (method.OverriddenMethod.ContainingType.IsSystemObject() ||
                 method.OverriddenMethod.ContainingType.IsSystemValueType(compilation));
 
         private static bool ImplementsEquals(IMethodSymbol method, Compilation compilation)
@@ -153,22 +154,26 @@ namespace ErrorProne.NET.CoreAnalyzers
             return false;
         }
 
-        private bool HasInstanceMembers(INamedTypeSymbol type)
+        private static bool HasInstanceMembers(INamedTypeSymbol type)
         {
-            // Looking for instancce members but excluding constructors.
+            // Looking for instance members but excluding constructors.
             return type.GetMembers()
                 .Where(m => !m.IsStatic)
                 .Any(m => m is IFieldSymbol || m is IPropertySymbol);
         }
 
-        private bool IsInstanceMember(INamedTypeSymbol methodContainingType, ISymbol symbol, Compilation compilation)
+        private static bool IsInstanceMember(INamedTypeSymbol methodContainingType, ISymbol symbol)
         {
             if (symbol.IsStatic)
             {
                 return false;
             }
 
-            if (symbol is IMethodSymbol ms && ms.Parameters.Length == 1 && (ms.Name == "Equals" || ms.Name == "CompareTo") && symbol.ContainingType?.Equals(methodContainingType) == true)
+            if (
+                symbol is IMethodSymbol ms 
+                && ms.Parameters.Length == 1 
+                && (ms.Name == "Equals" || ms.Name == "CompareTo") 
+                && symbol.ContainingType?.Equals(methodContainingType, SymbolEqualityComparer.Default) == true)
             {
                 // Special case for Equals(object) => this is MyT && Equals((MyT)other).
                 return true;

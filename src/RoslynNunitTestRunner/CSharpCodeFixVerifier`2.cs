@@ -5,8 +5,9 @@ using Microsoft.CodeAnalysis.Diagnostics;
 using Microsoft.CodeAnalysis.Testing;
 using Microsoft.CodeAnalysis.Testing.Verifiers;
 using System.Threading.Tasks;
+using Microsoft.CodeAnalysis.CSharp;
 
-namespace RoslynNUnitTestRunner
+namespace ErrorProne.NET.TestHelpers
 {
     public static partial class CSharpCodeFixVerifier<TAnalyzer, TCodeFix>
         where TAnalyzer : DiagnosticAnalyzer, new()
@@ -26,6 +27,7 @@ namespace RoslynNUnitTestRunner
             var test = new Test
             {
                 TestCode = source,
+                LanguageVersion = LanguageVersion.Latest
             };
 
             test.ExpectedDiagnostics.AddRange(expected);

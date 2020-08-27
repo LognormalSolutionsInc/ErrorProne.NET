@@ -15,9 +15,9 @@ namespace ErrorProne.NET.AsyncAnalyzers
         /// <nodoc />
         public const string DiagnosticId = DiagnosticIds.ConfigureAwaitFalseMustBeUsed;
 
-        private static readonly string Title = "ConfigureAwait(false) must be used.";
+        private const string Title = "ConfigureAwait(false) must be used.";
 
-        private static readonly string Description = "The assembly is configured to use .ConfigureAwait(false)";
+        private const string Description = "The assembly is configured to use .ConfigureAwait(false)";
         private const string Category = "CodeSmell";
 
         private const DiagnosticSeverity Severity = DiagnosticSeverity.Warning;
@@ -33,10 +33,8 @@ namespace ErrorProne.NET.AsyncAnalyzers
         }
 
         /// <inheritdoc />
-        public override void Initialize(AnalysisContext context)
+        protected override void InitializeCore(AnalysisContext context)
         {
-            context.EnableConcurrentExecution();
-
             context.RegisterSyntaxNodeAction(AnalyzeAwaitExpression, SyntaxKind.AwaitExpression);
         }
 

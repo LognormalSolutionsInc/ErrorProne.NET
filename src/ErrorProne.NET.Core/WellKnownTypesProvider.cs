@@ -5,9 +5,12 @@ namespace ErrorProne.NET.Core
 {
     public static class WellKnownTypesProvider
     {
-        public static INamedTypeSymbol GetExceptionType(this SemanticModel model)
+        private static readonly SymbolDisplayFormat SymbolDisplayFormat = new SymbolDisplayFormat(
+            typeQualificationStyle: SymbolDisplayTypeQualificationStyle.NameAndContainingTypesAndNamespaces);
+
+        public static INamedTypeSymbol? GetExceptionType(this SemanticModel model)
         {
-            return model.Compilation.GetTypeByMetadataName(typeof(Exception).FullName);
+            return model.Compilation.GetTypeByFullName(typeof(Exception).FullName);
         }
 
         public static INamedTypeSymbol GetBoolType(this SemanticModel model)
@@ -20,23 +23,20 @@ namespace ErrorProne.NET.Core
             return model.Compilation.GetSpecialType(SpecialType.System_Object);
         }
 
-        public static INamedTypeSymbol GetClrType(this SemanticModel model, Type type)
+        public static INamedTypeSymbol? GetClrType(this SemanticModel model, Type type)
         {
-            return model.Compilation.GetTypeByMetadataName(type.FullName);
+            return model.Compilation.GetTypeByFullName(type.FullName);
         }
 
-        public static INamedTypeSymbol GetClrType(this Compilation compilation, Type type)
+        public static INamedTypeSymbol? GetClrType(this Compilation compilation, Type type)
         {
             return compilation.GetClrType(type.FullName);
         }
 
-        public static INamedTypeSymbol GetClrType(this Compilation compilation, string fullName)
+        public static INamedTypeSymbol? GetClrType(this Compilation compilation, string fullName)
         {
-            return compilation.GetTypeByMetadataName(fullName);
+            return compilation.GetTypeByFullName(fullName);
         }
-
-        private static readonly SymbolDisplayFormat _symbolDisplayFormat = new SymbolDisplayFormat(
-            typeQualificationStyle: SymbolDisplayTypeQualificationStyle.NameAndContainingTypesAndNamespaces);
 
         /// <summary>
         /// Returns true if the given <paramref name="type"/> belongs to a <see cref="System.Tuple"/> family of types.
@@ -44,7 +44,7 @@ namespace ErrorProne.NET.Core
         public static bool IsSystemTuple(this INamedTypeSymbol type)
         {
             // Not perfect but the simplest implementation.
-            return type.IsGenericType && type.ToDisplayString(_symbolDisplayFormat) == "System.Tuple";
+            return type.IsGenericType && type.ToDisplayString(SymbolDisplayFormat) == "System.Tuple";
         }
     }
 }

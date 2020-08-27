@@ -9,15 +9,6 @@
         public const string MakeStructReadonlyDiagnosticId = "EPS01";
 
         /// <nodoc />
-        public const string NonReadOnlyStructPassedAsInParameterDiagnosticId = "EPS02";
-        
-        /// <nodoc />
-        public const string NonReadOnlyStructReturnedByReadOnlyRefDiagnosticId = "EPS03";
-
-        /// <nodoc />
-        public const string NonReadOnlyStructRefReadOnlyLocalDiagnosticId = "EPS04";
-
-        /// <nodoc />
         public const string UseInModifierForReadOnlyStructDiagnosticId = "EPS05";
 
         /// <nodoc />
@@ -31,5 +22,15 @@
 
         /// <nodoc />
         public const string ExplicitInParameterDiagnosticId = "EPS09";
+
+        /// <nodoc />
+        public const string DoNotUseDefaultConstructionForStruct = "EPS10";
+
+        /// <nodoc />
+        public const string DoNotEmbedStructsMarkedWithDoUseDefaultConstructionForStruct = "EPS11";
+
+        /// <nodoc />
+        public const string MakeStructMemberReadOnly = "EPS12";
+
     }
 }
